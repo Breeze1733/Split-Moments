@@ -1,0 +1,105 @@
+import 'package:flutter/material.dart';
+import '../constants/app_theme.dart';
+import '../constants/strings.dart';
+import '../models/moment.dart';
+import 'blur_overlay.dart';
+import 'moment_card.dart';
+
+/// 单日 1:1 分屏视图
+/// 左侧：当前用户的动态，右侧：对方的动态（或盲盒遮罩）
+class DaySplitView extends StatelessWidget {
+  final Moment? myMoment;
+  final Moment? partnerMoment;
+  final String myNickname;
+  final String partnerNickname;
+  final String? myAvatarUrl;
+  final String? partnerAvatarUrl;
+
+  const DaySplitView({
+    super.key,
+    this.myMoment,
+    this.partnerMoment,
+    this.myNickname = '',
+    this.partnerNickname = '',
+    this.myAvatarUrl,
+    this.partnerAvatarUrl,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Expanded(
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // 左列：自己的动态
+          Expanded(
+            child: _buildColumn(
+              moment: myMoment,
+              nickname: myNickname,
+              avatarUrl: myAvatarUrl,
+              isSelf: true,
+            ),
+          ),
+          // 中间分隔线
+          Container(
+            width: 1,
+            color: AppTheme.dividerColor,
+          ),
+          // 右列：对方的动态
+          Expanded(
+            child: _buildColumn(
+              moment: partnerMoment,
+              nickname: partnerNickname,
+              avatarUrl: partnerAvatarUrl,
+              isSelf: false,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildColumn({
+    required Moment? moment,
+    required String nickname,
+    required String? avatarUrl,
+    required bool isSelf,
+  }) {
+    if (moment != null) {
+      // 有动态，正常显示
+      return SingleChildScrollView(
+        child: MomentCard(
+          moment: moment,
+          nickname: nickname,
+          avatarUrl: avatarUrl,
+        ),
+      );
+    }
+
+    if (isSelf) {
+      // 自己还未发布
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(Icons.edit_note, size: 40, color: Colors.grey[300]),
+              const SizedBox(height: 8),
+              Text(
+                AppStrings.noPostPlaceholder,
+                style: TextStyle(color: AppTheme.textSecondary, fontSize: 14),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    // 对方未发布 → 盲盒遮罩
+    return const Padding(
+      padding: EdgeInsets.all(12),
+      child: BlurOverlay(),
+    );
+  }
+}

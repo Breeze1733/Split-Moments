@@ -1,0 +1,199 @@
+import 'dart:io';
+import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../constants/app_theme.dart';
+import '../constants/strings.dart';
+import '../models/moment.dart';
+import '../providers/auth_provider.dart';
+import '../utils/date_helper.dart';
+import '../widgets/image_slot.dart';
+
+/// 发布/编辑动态页
+class EditMomentScreen extends ConsumerStatefulWidget {
+  final DateTime date;
+  final Moment? existingMoment; // null 表示新建
+
+  const EditMomentScreen({
+    super.key,
+    required this.date,
+    this.existingMoment,
+  });
+
+  @override
+  ConsumerState<EditMomentScreen> createState() => _EditMomentScreenState();
+}
+
+class _EditMomentScreenState extends ConsumerState<EditMomentScreen> {
+  final _feelingController = TextEditingController();
+  File? _selfImageFile;
+  File? _partnerImageFile;
+  bool _isSaving = false;
+
+  bool get _isEdit => widget.existingMoment != null;
+
+  @override
+  void initState() {
+    super.initState();
+    if (_isEdit) {
+      _feelingController.text = widget.existingMoment!.feeling;
+    }
+  }
+
+  @override
+  void dispose() {
+    _feelingController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _handleSave() async {
+    setState(() => _isSaving = true);
+
+    try {
+      final currentUser = ref.read(currentUserProvider);
+      if (currentUser == null) throw Exception('未登录');
+
+      final firestoreService = ref.read(firestoreServiceProvider);
+      final storageService = ref.read(storageServiceProvider);
+      final dateStr = DateHelper.toDateStr(widget.date);
+      final folder = 'user_${currentUser.uid}';
+
+      String selfImageUrl;
+      String partnerImageUrl;
+
+      if (_isEdit) {
+        // 编辑模式：仅上传新选择的图片，否则保留旧 URL
+        selfImageUrl = widget.existingMoment!.selfImageUrl;
+        partnerImageUrl = widget.existingMoment!.partnerImageUrl;
+
+        if (_selfImageFile != null) {
+          selfImageUrl = await storageService.uploadImage(_selfImageFile!, folder);
+        }
+        if (_partnerImageFile != null) {
+          partnerImageUrl = await storageService.uploadImage(_partnerImageFile!, folder);
+        }
+
+        await firestoreService.updateMoment(
+          widget.existingMoment!.id,
+          {
+            'self_image_url': selfImageUrl,
+            'partner_image_url': partnerImageUrl,
+            'feeling': _feelingController.text.trim(),
+            'updated_at': DateTime.now().toIso8601String(),
+          },
+        );
+      } else {
+        // 新建模式：必须选择两张图片
+        if (_selfImageFile == null || _partnerImageFile == null) {
+          if (!mounted) return;
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('请选择两张照片')),
+          );
+          setState(() => _isSaving = false);
+          return;
+        }
+
+        selfImageUrl = await storageService.uploadImage(_selfImageFile!, folder);
+        partnerImageUrl = await storageService.uploadImage(_partnerImageFile!, folder);
+
+        await firestoreService.createMoment(
+          dateStr: dateStr,
+          authorId: currentUser.uid,
+          selfImageUrl: selfImageUrl,
+          partnerImageUrl: partnerImageUrl,
+          feeling: _feelingController.text.trim(),
+        );
+      }
+
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text(AppStrings.uploadSuccess), backgroundColor: AppTheme.primaryColor),
+      );
+      Navigator.pop(context, true);
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('${AppStrings.uploadFailed}: $e'), backgroundColor: Colors.red),
+      );
+    } finally {
+      if (mounted) setState(() => _isSaving = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: Text(_isEdit ? AppStrings.editTitle : AppStrings.createTitle),
+      ),
+      body: SingleChildScrollView(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // 日期显示
+            Center(
+              child: Text(
+                DateHelper.toChineseDate(widget.date),
+                style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
+              ),
+            ),
+            const SizedBox(height: 20),
+
+            // 图片插槽 1：关于自己
+            Text(AppStrings.selfPhotoLabel, style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w500)),
+            const SizedBox(height: 8),
+            ImageSlot(
+              imageFile: _selfImageFile,
+              existingUrl: widget.existingMoment?.selfImageUrl,
+              label: '自己',
+              onImagePicked: (file) => setState(() => _selfImageFile = file),
+            ),
+            const SizedBox(height: 20),
+
+            // 图片插槽 2：关于对方
+            Text(AppStrings.partnerPhotoLabel, style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w500)),
+            const SizedBox(height: 8),
+            ImageSlot(
+              imageFile: _partnerImageFile,
+              existingUrl: widget.existingMoment?.partnerImageUrl,
+              label: '对方',
+              onImagePicked: (file) => setState(() => _partnerImageFile = file),
+            ),
+            const SizedBox(height: 20),
+
+            // 感受输入
+            Text(AppStrings.feelingLabel, style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w500)),
+            const SizedBox(height: 8),
+            TextField(
+              controller: _feelingController,
+              maxLines: 5,
+              decoration: InputDecoration(
+                hintText: AppStrings.feelingHint,
+              ),
+            ),
+            const SizedBox(height: 32),
+
+            // 保存按钮
+            SizedBox(
+              width: double.infinity,
+              height: 48,
+              child: FilledButton(
+                onPressed: _isSaving ? null : _handleSave,
+                style: FilledButton.styleFrom(
+                  backgroundColor: AppTheme.primaryColor,
+                ),
+                child: _isSaving
+                    ? const SizedBox(
+                        width: 20,
+                        height: 20,
+                        child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                      )
+                    : const Text(AppStrings.saveButton, style: TextStyle(fontSize: 16)),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
