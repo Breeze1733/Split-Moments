@@ -123,10 +123,16 @@ function normalizeMomentRecord(moment) {
         self_image_url: normalizeUploadUrl(moment.self_image_url),
         partner_image_url: normalizeUploadUrl(moment.partner_image_url),
         mood: normalizeMood(moment.mood),
-        comments: normalizeComments(moment.comments),
+        comments: normalizeComments(moment.comments, moment.author_id),
         created_at: createdAt,
         updated_at: updatedAt
     };
+}
+
+function getPartnerUid(authorId) {
+    if (authorId === 'A') return 'B';
+    if (authorId === 'B') return 'A';
+    return '';
 }
 
 function migrateMomentRecords() {
@@ -173,16 +179,16 @@ function normalizeMood(value) {
     return mood;
 }
 
-function normalizeComments(value) {
+function normalizeComments(value, momentAuthorId) {
     if (Array.isArray(value)) {
-        return value.map(item => String(item));
+        return value.map(item => normalizeComment(item, momentAuthorId));
     }
 
     if (typeof value === 'string' && value.trim()) {
         try {
             const parsed = JSON.parse(value);
             if (Array.isArray(parsed)) {
-                return parsed.map(item => String(item));
+                return parsed.map(item => normalizeComment(item, momentAuthorId));
             }
         } catch {
             return [];
@@ -190,6 +196,36 @@ function normalizeComments(value) {
     }
 
     return [];
+}
+
+function normalizeComment(item, momentAuthorId) {
+    // 兼容旧格式：纯字符串 → 转为新结构，作者设为对方
+    if (typeof item === 'string') {
+        return {
+            id: makeMomentId(),
+            author_id: getPartnerUid(momentAuthorId),
+            content: item,
+            reply_to: null,
+            created_at: nowIsoUtc8()
+        };
+    }
+    // 新格式：对象
+    if (item && typeof item === 'object') {
+        return {
+            id: item.id || makeMomentId(),
+            author_id: String(item.author_id || getPartnerUid(momentAuthorId)),
+            content: String(item.content || ''),
+            reply_to: item.reply_to || null,
+            created_at: item.created_at ? toIsoUtc8(item.created_at) : nowIsoUtc8()
+        };
+    }
+    return {
+        id: makeMomentId(),
+        author_id: getPartnerUid(momentAuthorId),
+        content: String(item),
+        reply_to: null,
+        created_at: nowIsoUtc8()
+    };
 }
 
 ensureDataFiles();
@@ -476,7 +512,7 @@ registerRoute('put', '/moments/:id', (req, res) => {
         if (!Array.isArray(updates.comments)) {
             return fail(res, 400, 'comments 必须是数组');
         }
-        next.comments = normalizeComments(updates.comments);
+        next.comments = normalizeComments(updates.comments, next.author_id);
     }
     if (typeof updates.date_str === 'string') {
         if (!isValidDateStr(updates.date_str)) {

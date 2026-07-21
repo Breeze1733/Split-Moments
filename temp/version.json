@@ -1,5 +1,5 @@
 {
-  "version": "1.0.2",
-  "version_code": 3,
-  "release_notes": "新增缓存功能，评论不影响编辑时间，离线可查看日记"
+  "version": "1.0.3",
+  "version_code": 4,
+  "release_notes": "修复了下载图片后手机无法显示的情况，点击评论可以支持嵌套评论或者删除评论（类似于朋友圈的用法）"
 }
