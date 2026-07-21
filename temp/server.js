@@ -563,6 +563,94 @@ registerRoute('get', '/moments/:uid/dates', (req, res) => {
     return ok(res, dates);
 });
 
+// ─── 话题讨论 API ───
+const topicsFile = path.join(dataDir, 'topics.json');
+const postsFile = path.join(dataDir, 'posts.json');
+
+function ensureTopicFiles() {
+    if (!fs.existsSync(topicsFile)) fs.writeFileSync(topicsFile, '[]', 'utf8');
+    if (!fs.existsSync(postsFile)) fs.writeFileSync(postsFile, '[]', 'utf8');
+}
+ensureTopicFiles();
+
+function makeTopicId() {
+    return 't' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+}
+
+function makePostId() {
+    return 'p' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+}
+
+// 话题列表
+registerRoute('get', '/topics', (req, res) => {
+    const topics = readJsonArray(topicsFile)
+        .sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+    return ok(res, topics);
+});
+
+// 创建话题
+registerRoute('post', '/topics', (req, res) => {
+    const { title, author_id } = req.body || {};
+    if (!title || !String(title).trim()) return fail(res, 400, '标题不能为空');
+    if (!author_id) return fail(res, 400, 'author_id 不能为空');
+
+    const topics = readJsonArray(topicsFile);
+    const topic = {
+        id: makeTopicId(),
+        title: String(title).trim(),
+        author_id: String(author_id),
+        created_at: nowIsoUtc8()
+    };
+    topics.push(topic);
+    writeJsonArray(topicsFile, topics);
+    return ok(res, topic);
+});
+
+// 话题详情（含帖子列表）
+registerRoute('get', '/topics/:id', (req, res) => {
+    const topics = readJsonArray(topicsFile);
+    const topic = topics.find(t => t.id === req.params.id);
+    if (!topic) return fail(res, 404, '话题不存在');
+
+    const posts = readJsonArray(postsFile)
+        .filter(p => p.topic_id === req.params.id)
+        .sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
+
+    return ok(res, { ...topic, posts });
+});
+
+// 发帖
+registerRoute('post', '/topics/:id/posts', (req, res) => {
+    const { author_id, content } = req.body || {};
+    if (!author_id) return fail(res, 400, 'author_id 不能为空');
+    if (!content || !String(content).trim()) return fail(res, 400, '内容不能为空');
+
+    const topics = readJsonArray(topicsFile);
+    if (!topics.some(t => t.id === req.params.id)) return fail(res, 404, '话题不存在');
+
+    const posts = readJsonArray(postsFile);
+    const post = {
+        id: makePostId(),
+        topic_id: req.params.id,
+        author_id: String(author_id),
+        content: String(content).trim(),
+        created_at: nowIsoUtc8()
+    };
+    posts.push(post);
+    writeJsonArray(postsFile, posts);
+    return ok(res, post);
+});
+
+// 删帖
+registerRoute('delete', '/topics/:id/posts/:postId', (req, res) => {
+    const posts = readJsonArray(postsFile);
+    const index = posts.findIndex(p => p.id === req.params.postId && p.topic_id === req.params.id);
+    if (index === -1) return fail(res, 404, '帖子不存在');
+    posts.splice(index, 1);
+    writeJsonArray(postsFile, posts);
+    return ok(res);
+});
+
 const server = app.listen(PORT, () => {
     console.log(`后端运行在 http://localhost:${PORT}`);
 });
